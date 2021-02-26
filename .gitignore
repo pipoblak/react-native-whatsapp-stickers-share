@@ -42,6 +42,3 @@ buck-out/
 *.keystore
 
 Pods
-
-index.d.ts
-index.js
