@@ -1,219 +1,190 @@
 package org.roborox.whatsapp
 
-import android.app.Activity
-import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.RectF
+import android.content.ContentProvider
+import android.content.ContentValues
+import android.content.UriMatcher
+import android.database.Cursor
+import android.database.MatrixCursor
+import android.net.Uri
+import android.os.ParcelFileDescriptor
 import android.util.Log
-import com.facebook.react.bridge.*
-import kotlinx.coroutines.*
 import kotlinx.serialization.json.Json
 import java.io.File
-import java.io.BufferedWriter
-import java.io.FileWriter
-import java.io.FileOutputStream
-import java.io.BufferedInputStream
-import java.net.URL
-import kotlin.math.min
-import kotlin.time.ExperimentalTime
-import kotlin.time.measureTime
-
-import java.nio.channels.*
-import java.nio.file.*
+import java.io.FileNotFoundException
 
 
-class WhatsAppStickersShareModule(
-        private val reactContext: ReactApplicationContext
-) : ReactContextBaseJavaModule(reactContext), ActivityEventListener {
-    init {
-        reactContext.addActivityEventListener(this)
+class StickerContentProvider : ContentProvider() {
+    private val matcher: UriMatcher = UriMatcher(UriMatcher.NO_MATCH)
+
+    override fun onCreate(): Boolean {
+        val authority = BuildConfig.CONTENT_PROVIDER_AUTHORITY
+        matcher.addURI(authority, "metadata", METADATA)
+        matcher.addURI(authority, "metadata/*", METADATA_SINGLE)
+        matcher.addURI(authority, "stickers/*", STICKERS)
+        matcher.addURI(authority, "stickers_asset/*/tray.png", TRAY_FILE)
+        matcher.addURI(authority, "stickers_asset/*/*", STICKER_FILE)
+        return true
     }
 
-    override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode != REQUEST_CODE_ADD_PACK || data === null) return
-        if (resultCode == Activity.RESULT_CANCELED) {
-            val error = data.getStringExtra("validation_error")
-            Log.e(TAG, "Failed to add pack: $error")
-            return
-        }
-        Log.e(TAG, "Pack added")
-    }
-
-    override fun onNewIntent(intent: Intent?) { }
-
-    override fun getName() = "WhatsAppStickersShare"
-
-    private suspend fun packDir(identifier: String) = withContext(Dispatchers.IO) {
-        val cacheDir = this@WhatsAppStickersShareModule.reactContext.externalCacheDir!!
+    private fun stickersDir(): File {
+        val cacheDir = this@StickerContentProvider.context!!.externalCacheDir!!
         val stickersDir = File(cacheDir.absolutePath + File.separator + STICKERS_FOLDER_NAME)
         if (!stickersDir.exists()) stickersDir.mkdir()
-        val packDir = File(stickersDir.absolutePath + File.separator + identifier)
+        return stickersDir
+    }
+
+    private fun packDir(identifier: String): File {
+        val packDir = File(stickersDir().absolutePath + File.separator + identifier)
         if (!packDir.exists()) packDir.mkdir()
-        packDir
+        return packDir
     }
 
-    private fun packDirUnsafe(identifier: String): File {
-        val cacheDir = this@WhatsAppStickersShareModule.reactContext.externalCacheDir!!
-        val stickersDir = File(cacheDir.absolutePath + File.separator + STICKERS_FOLDER_NAME)
-        return File(stickersDir.absolutePath + File.separator + identifier)
+    private fun readStickerPack(identifier: String): StickerPack {
+        val metadataFile = File(packDir(identifier).absolutePath + File.separator + METADATA_FILENAME)
+        return Json.decodeFromString(StickerPack.serializer(), metadataFile.readText())
     }
 
-    private fun scaleCenterCrop(source: Bitmap, size: Int): Bitmap {
-        val sourceWidth = source.width
-        val sourceHeight = source.height
-
-        val xScale = size.toFloat() / sourceWidth
-        val yScale = size.toFloat() / sourceHeight
-        val scale = min(xScale, yScale)
-
-        val scaledWidth = scale * sourceWidth
-        val scaledHeight = scale * sourceHeight
-
-        val left = (size - scaledWidth) / 2
-        val top = (size - scaledHeight) / 2
-
-        val targetRect = RectF(left, top, left + scaledWidth, top + scaledHeight)
-
-        val dest = Bitmap.createBitmap(size, size, source.config)
-        val canvas = Canvas(dest)
-        canvas.drawBitmap(source, null, targetRect, null)
-        return dest
-    }
-
-    private fun storeImageTray(imageUrl: String, file: File, size: Int, compress: Bitmap.CompressFormat, quality: Int) {
-        URL(imageUrl).openStream().use { input -> FileOutputStream(file).use { output ->
-            val source = BitmapFactory.decodeStream(input)
-            val image = if (source.width == size && source.height == size) { source } else {
-                scaleCenterCrop(source, size)
-            }
-            image.compress(compress, quality, output)
-        } }
-    }
-
-    private fun storeImage(imageUrl: String, file: File, size: Int, compress: Bitmap.CompressFormat, quality: Int) {
-        val readableByteChannel = Channels.newChannel(URL(imageUrl).openStream());
-        val fileOutputStream = FileOutputStream(file);
-        val fileChannel = fileOutputStream.getChannel();
-        fileOutputStream.getChannel().transferFrom(readableByteChannel, 0, Long.MAX_VALUE);
-    }
-
-    private suspend fun storeTrayImage(imageUrl: String, identifier: String): String {
-        val file = File(packDir(identifier).absolutePath + File.separator + TRAY_IMAGE_NAME)
-        withContext(Dispatchers.IO) {
-            storeImageTray(imageUrl, file, TRAY_IMAGE_SIZE, Bitmap.CompressFormat.PNG, 100)
-        }
-        return file.name
-    }
-
-    private suspend fun storeStickerImage(imageUrl: String, packIdentifier: String): String {
-        @Suppress("BlockingMethodInNonBlockingContext")
-        val file = File.createTempFile(STICKER_IMAGE_PREFIX, STICKER_IMAGE_SUFFIX, packDir(packIdentifier))
-        storeImage(imageUrl, file, STICKER_IMAGE_SIZE, Bitmap.CompressFormat.WEBP, 100)
-        return file.name
-    }
-
-    private suspend fun createStickerPack(config: ReadableMap): StickerPack {
-        val identifier = config.getString("identifier")!!
-        val title = config.getString("title")!!
-        val trayImageFileName = storeTrayImage(config.getString("trayImage")!!, identifier)
-        val stickerPack = StickerPack(
-                identifier = identifier,
-                name = title,
-                trayImageFileName = trayImageFileName,
-                publisher = config.getString("author")!!,
-                publisherEmail = config.getString("publisherEmail")!!,
-                publisherWebsite = config.getString("publisherURL")!!,
-                privacyPolicyWebsite = config.getString("privacyPolicyURL")!!,
-                licenseAgreementWebsite = config.getString("licenseURL")!!,
-                imageDataVersion = config.getString("imageDataVersion")!!,
-                animatedStickerPack = config.getBoolean("animatedStickerPack")!!,
-                avoidCache = false,
-                iosAppStoreLink = if (config.hasKey("iosAppStoreLink")) { config.getString("iosAppStoreLink") } else { null },
-                androidPlayStoreLink = if (config.hasKey("androidPlayStoreLink")) { config.getString("androidPlayStoreLink") } else { null }
-        )
-
-        val stickers = config.getArray("stickers")!!
-        val promises = ArrayList<Deferred<Unit>>()
-        for (index in 0 until stickers.size()) {
-            val sticker = stickers.getMap(index)
-            if (sticker === null) continue
-            val imageURL = sticker.getString("url")!!
-            val emojis = ArrayList<String>()
-            if (sticker.hasKey("emojis")) {
-                val emojisReadable = sticker.getArray("emojis")!!
-                emojis.ensureCapacity(emojisReadable.size())
-                for (emojiIndex in 0 until emojisReadable.size()) {
-                    val emoji = emojisReadable.getString(emojiIndex)
-                    if (emoji !== null) emojis.add(emoji)
-                }
-            }
-            promises.add(GlobalScope.async(Dispatchers.IO) {
-                val image = storeStickerImage(imageURL, identifier)
-                stickerPack.stickers.add(Sticker(image, emojis))
-                Unit
-            })
-        }
-        awaitAll(*promises.toTypedArray())
-
-        return stickerPack
-    }
-
-    @ExperimentalTime
-    @ReactMethod
-    fun share(config: ReadableMap, promise: Promise) {
-        GlobalScope.launch {
+    private fun readAllStickerPacks(): ArrayList<StickerPack> {
+        val stickersDir = stickersDir()
+        val stickerPacks = ArrayList<StickerPack>()
+        for (packDir in stickersDir.listFiles()) {
+            if (!packDir.isDirectory) continue
             try {
-                val packDir = packDirUnsafe(config.getString("identifier")!!)
-                if (packDir.exists()) {
-                    packDir.deleteRecursively()
-                }
-
-                val stickerPack: StickerPack
-                val duration = measureTime { stickerPack = createStickerPack(config) }
-                Log.d(TAG, "createStickerPack: $duration")
-                withContext(Dispatchers.IO) {
-                    val json = Json.encodeToString(StickerPack.serializer(), stickerPack)
-                    val metaFile = File(packDir.absolutePath + File.separator + METADATA_FILENAME)
-                    metaFile.writeText(json)
-                }
-
-                val intent = Intent()
-                intent.action = ACTION_ADD_PACK
-                intent.putExtra(EXTRA_STICKER_PACK_ID, stickerPack.identifier)
-                intent.putExtra(EXTRA_STICKER_PACK_AUTHORITY, BuildConfig.CONTENT_PROVIDER_AUTHORITY)
-                intent.putExtra(EXTRA_STICKER_PACK_NAME, stickerPack.name)
-
-                val activity = currentActivity
-                if (activity !== null && activity.packageManager.resolveActivity(intent, 0) !== null) {
-                    activity.startActivityForResult(intent, REQUEST_CODE_ADD_PACK)
-                    promise.resolve(true)
-                } else {
-                    promise.resolve(false)
-                }
+                val stickerPack = readStickerPack(packDir.name)
+                stickerPacks.add(stickerPack)
             } catch (error: Throwable) {
-                promise.reject(error)
+                packDir.deleteRecursively()
             }
         }
+        return stickerPacks
+    }
+
+    private fun getMetadata(packs: List<StickerPack>): Cursor {
+        Log.d(TAG, "getMetadata packs=$packs")
+        val cursor = MatrixCursor(arrayOf(
+                STICKER_PACK_IDENTIFIER_IN_QUERY,
+                STICKER_PACK_NAME_IN_QUERY,
+                STICKER_PACK_PUBLISHER_IN_QUERY,
+                STICKER_PACK_ICON_IN_QUERY,
+                ANDROID_APP_DOWNLOAD_LINK_IN_QUERY,
+                IOS_APP_DOWNLOAD_LINK_IN_QUERY,
+                PUBLISHER_EMAIL,
+                PUBLISHER_WEBSITE,
+                PRIVACY_POLICY_WEBSITE,
+                LICENSE_AGREENMENT_WEBSITE,
+                IMAGE_DATA_VERSION,
+                ANIMATED_STICKER_PACK,
+                AVOID_CACHE
+        ))
+        for (stickerPack in packs) {
+            val builder = cursor.newRow()
+            builder.add(stickerPack.identifier)
+            builder.add(stickerPack.name)
+            builder.add(stickerPack.publisher)
+            builder.add(stickerPack.trayImageFileName)
+            builder.add(stickerPack.androidPlayStoreLink)
+            builder.add(stickerPack.iosAppStoreLink)
+            builder.add(stickerPack.publisherEmail)
+            builder.add(stickerPack.publisherWebsite)
+            builder.add(stickerPack.privacyPolicyWebsite)
+            builder.add(stickerPack.licenseAgreementWebsite)
+            builder.add(stickerPack.imageDataVersion)
+            builder.add(stickerPack.animatedStickerPack)
+            builder.add(if (stickerPack.avoidCache) 1 else 0)
+        }
+        return cursor
+    }
+
+    private fun getStickers(id: String): Cursor {
+        Log.d(TAG, "getStickers id=$id")
+        val cursor = MatrixCursor(arrayOf(STICKER_FILE_NAME_IN_QUERY, STICKER_FILE_EMOJI_IN_QUERY))
+        val pack = readStickerPack(id)
+        for (sticker in pack.stickers) {
+            val b = cursor.newRow()
+            b.add(sticker.imageFileName)
+            b.add(sticker.emojis)
+        }
+        return cursor
+    }
+
+    override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor {
+        return when (matcher.match(uri)) {
+            METADATA -> getMetadata(readAllStickerPacks())
+            METADATA_SINGLE -> getMetadata(listOf(readStickerPack(uri.lastPathSegment!!)))
+            STICKERS -> getStickers(uri.lastPathSegment!!)
+            else -> throw IllegalArgumentException("uri not supported: $uri")
+        }
+    }
+
+    private fun openFileDescriptor(uri: Uri): ParcelFileDescriptor {
+        Log.d(TAG, "openStickerAsset $uri")
+        val segments = uri.pathSegments
+        val fileName = segments[segments.size - 1]
+        val identifier = segments[segments.size - 2]
+        val file = File(packDir(identifier).absolutePath + File.separator + fileName)
+        return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+    }
+
+    override fun openFile(uri: Uri, mode: String?): ParcelFileDescriptor {
+        return when (matcher.match(uri)) {
+            STICKER_FILE, TRAY_FILE -> openFileDescriptor(uri)
+            else -> throw FileNotFoundException("Not supported for $uri")
+        }
+    }
+
+    override fun getType(uri: Uri): String {
+        val authority = BuildConfig.CONTENT_PROVIDER_AUTHORITY
+        val type = when (matcher.match(uri)) {
+            METADATA -> "vnd.android.cursor.dir/vnd.$authority.metadata"
+            METADATA_SINGLE -> "vnd.android.cursor.item/vnd.$authority.metadata"
+            STICKERS -> "vnd.android.cursor.dir/vnd.$authority.stickers"
+            TRAY_FILE -> "image/webp"
+            STICKER_FILE -> "image/webp"
+            else -> throw IllegalArgumentException("unsupported uri: $uri")
+        }
+        Log.d(TAG, "type for $uri = $type")
+        return type
+    }
+
+    override fun insert(uri: Uri, values: ContentValues): Uri {
+        throw UnsupportedOperationException("Not supported")
+    }
+
+    override fun update(uri: Uri?, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int {
+        throw UnsupportedOperationException("Not supported")
+    }
+
+    override fun delete(uri: Uri?, selection: String?, selectionArgs: Array<out String>?): Int {
+        throw UnsupportedOperationException("Not supported")
     }
 
     companion object {
-        private const val TAG = "org.roborox.whatsapp"
+        private const val TAG = "debug-share"
+
+        private const val METADATA = 1
+        private const val METADATA_SINGLE = 2
+        private const val STICKERS = 3
+        private const val TRAY_FILE = 4
+        private const val STICKER_FILE = 5
 
         private const val STICKERS_FOLDER_NAME = "stickers"
         private const val METADATA_FILENAME = "metadata.json"
-        private const val TRAY_IMAGE_NAME = "tray.png"
-        private const val TRAY_IMAGE_SIZE = 96
-        private const val STICKER_IMAGE_PREFIX = "sticker_"
-        private const val STICKER_IMAGE_SUFFIX = ".webp"
-        private const val STICKER_IMAGE_SIZE = 512
 
-        private const val EXTRA_STICKER_PACK_ID = "sticker_pack_id"
-        private const val EXTRA_STICKER_PACK_AUTHORITY = "sticker_pack_authority"
-        private const val EXTRA_STICKER_PACK_NAME = "sticker_pack_name"
+        private const val STICKER_PACK_IDENTIFIER_IN_QUERY = "sticker_pack_identifier"
+        private const val STICKER_PACK_NAME_IN_QUERY = "sticker_pack_name"
+        private const val STICKER_PACK_PUBLISHER_IN_QUERY = "sticker_pack_publisher"
+        private const val STICKER_PACK_ICON_IN_QUERY = "sticker_pack_icon"
+        private const val ANDROID_APP_DOWNLOAD_LINK_IN_QUERY = "android_play_store_link"
+        private const val IOS_APP_DOWNLOAD_LINK_IN_QUERY = "ios_app_download_link"
+        private const val PUBLISHER_EMAIL = "sticker_pack_publisher_email"
+        private const val PUBLISHER_WEBSITE = "sticker_pack_publisher_website"
+        private const val PRIVACY_POLICY_WEBSITE = "sticker_pack_privacy_policy_website"
+        private const val LICENSE_AGREENMENT_WEBSITE = "sticker_pack_license_agreement_website"
+        private const val IMAGE_DATA_VERSION = "image_data_version"
+        private const val ANIMATED_STICKER_PACK = "animated_sticker_pack"
+        private const val AVOID_CACHE = "whatsapp_will_not_cache_stickers"
 
-        private const val ACTION_ADD_PACK = "com.whatsapp.intent.action.ENABLE_STICKER_PACK"
-        private const val REQUEST_CODE_ADD_PACK = 200
+        private const val STICKER_FILE_NAME_IN_QUERY = "sticker_file_name"
+        private const val STICKER_FILE_EMOJI_IN_QUERY = "sticker_emoji"
     }
 }
