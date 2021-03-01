@@ -12,6 +12,7 @@ internal data class StickerPack(
         val privacyPolicyWebsite: String,
         val licenseAgreementWebsite: String,
         val imageDataVersion: String,
+        val animatedStickerPack: Boolean,
         val avoidCache: Boolean,
         val stickers: ArrayList<Sticker> = ArrayList(),
         val iosAppStoreLink: String? = null,

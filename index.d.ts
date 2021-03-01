@@ -14,6 +14,8 @@ export interface StickerPackConfig {
     stickers: StickerConfig[];
     iosAppStoreLink?: string;
     androidPlayStoreLink?: string;
+    animatedStickerPack: boolean;
+    imageDataVersion: string;
 }
 export declare class WhatsAppStickersShare {
     share(config: StickerPackConfig): any;
