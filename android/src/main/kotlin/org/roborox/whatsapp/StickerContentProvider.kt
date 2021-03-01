@@ -89,7 +89,7 @@ class StickerContentProvider : ContentProvider() {
             builder.add(stickerPack.privacyPolicyWebsite)
             builder.add(stickerPack.licenseAgreementWebsite)
             builder.add(stickerPack.imageDataVersion)
-            builder.add(stickerPack.animatedStickerPack)
+            builder.add(if (stickerPack.animatedStickerPack) 1 else 0)
             builder.add(if (stickerPack.avoidCache) 1 else 0)
         }
         return cursor
