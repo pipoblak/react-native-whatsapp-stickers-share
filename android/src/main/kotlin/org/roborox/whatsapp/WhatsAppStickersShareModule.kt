@@ -115,7 +115,7 @@ class WhatsAppStickersShareModule(
                 privacyPolicyWebsite = config.getString("privacyPolicyURL")!!,
                 licenseAgreementWebsite = config.getString("licenseURL")!!,
                 imageDataVersion = config.getString("imageDataVersion")!!,
-                animatedStickerPack = config.getString("animatedStickerPack")!!,
+                animatedStickerPack = config.getBoolean("animatedStickerPack")!!,
                 avoidCache = false,
                 iosAppStoreLink = if (config.hasKey("iosAppStoreLink")) { config.getString("iosAppStoreLink") } else { null },
                 androidPlayStoreLink = if (config.hasKey("androidPlayStoreLink")) { config.getString("androidPlayStoreLink") } else { null }
