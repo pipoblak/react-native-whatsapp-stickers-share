@@ -16,7 +16,8 @@ import java.net.URL
 import kotlin.math.min
 import kotlin.time.ExperimentalTime
 import kotlin.time.measureTime
-
+import java.nio.channels.*
+import java.nio.file.*
 
 class WhatsAppStickersShareModule(
         private val reactContext: ReactApplicationContext
@@ -77,6 +78,13 @@ class WhatsAppStickersShareModule(
     }
 
     private fun storeImage(imageUrl: String, file: File, size: Int, compress: Bitmap.CompressFormat, quality: Int) {
+        val readableByteChannel = Channels.newChannel(URL(imageUrl).openStream());
+        val fileOutputStream = FileOutputStream(file);
+        val fileChannel = fileOutputStream.getChannel();
+        fileOutputStream.getChannel().transferFrom(readableByteChannel, 0, Long.MAX_VALUE);
+    }
+
+    private fun storeImageTray(imageUrl: String, file: File, size: Int, compress: Bitmap.CompressFormat, quality: Int) {
         URL(imageUrl).openStream().use { input -> FileOutputStream(file).use { output ->
             val source = BitmapFactory.decodeStream(input)
             val image = if (source.width == size && source.height == size) { source } else {
@@ -89,7 +97,7 @@ class WhatsAppStickersShareModule(
     private suspend fun storeTrayImage(imageUrl: String, identifier: String): String {
         val file = File(packDir(identifier).absolutePath + File.separator + TRAY_IMAGE_NAME)
         withContext(Dispatchers.IO) {
-            storeImage(imageUrl, file, TRAY_IMAGE_SIZE, Bitmap.CompressFormat.PNG, 100)
+            storeImageTray(imageUrl, file, TRAY_IMAGE_SIZE, Bitmap.CompressFormat.PNG, 100)
         }
         return file.name
     }
@@ -115,7 +123,7 @@ class WhatsAppStickersShareModule(
                 privacyPolicyWebsite = config.getString("privacyPolicyURL")!!,
                 licenseAgreementWebsite = config.getString("licenseURL")!!,
                 imageDataVersion = config.getString("imageDataVersion")!!,
-                animatedStickerPack = config.getString("animatedStickerPack")!!,
+                animatedStickerPack = config.getBoolean("animatedStickerPack")!!,
                 avoidCache = false,
                 iosAppStoreLink = if (config.hasKey("iosAppStoreLink")) { config.getString("iosAppStoreLink") } else { null },
                 androidPlayStoreLink = if (config.hasKey("androidPlayStoreLink")) { config.getString("androidPlayStoreLink") } else { null }
