@@ -35,7 +35,7 @@ class WhatsAppStickersShare: NSObject {
                             iOSAppStoreLink: RCTConvert.nsString(config["iosAppStoreLink"]),
                             androidStoreLink: RCTConvert.nsString(config["androidPlayStoreLink"]),
                             imageDataVersion: RCTConvert.nsString(config["imageDataVersion"]),
-                            animatedStickerPack: RCTConvert.nsString(config["animatedStickerPack"])
+                            animatedStickerPack: RCTConvert.nsString(config["animatedStickerPack"]).boolValue
                         )
                         let stickersMap: [NSDictionary] = RCTConvert.nsArray(config["stickers"]) as! [NSDictionary]
                         let group = DispatchGroup()
