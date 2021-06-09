@@ -37,6 +37,8 @@ class StickerPack {
     let licenseAgreementWebsite: String?
     let iOSAppStoreLink: String?
     let androidStoreLink: String?
+    let imageDataVersion: String?
+    let animatedStickerPack: Bool?
 
     var stickers: [Sticker]
 
@@ -68,7 +70,7 @@ class StickerPack {
      - .incorrectImageSize if the tray image is not within the allowed size
      - .animatedImagesNotSupported if the tray image is animated
      */
-    init(identifier: String, name: String, publisher: String, trayImageFileName: URL, publisherWebsite: String?, privacyPolicyWebsite: String?, licenseAgreementWebsite: String?, iOSAppStoreLink: String?, androidStoreLink: String?) throws {
+    init(identifier: String, name: String, publisher: String, trayImageFileName: URL, publisherWebsite: String?, privacyPolicyWebsite: String?, licenseAgreementWebsite: String?, iOSAppStoreLink: String?, androidStoreLink: String?, imageDataVersion: String?, animatedStickerPack: Bool?) throws {
         guard !name.isEmpty && !publisher.isEmpty && !identifier.isEmpty else {
             throw StickerPackError.emptyString
         }
@@ -91,6 +93,8 @@ class StickerPack {
         self.licenseAgreementWebsite = licenseAgreementWebsite
         self.iOSAppStoreLink = iOSAppStoreLink
         self.androidStoreLink = androidStoreLink
+        self.imageDataVersion = imageDataVersion
+        self.animatedStickerPack = animatedStickerPack
     }
 
     /**
@@ -111,7 +115,7 @@ class StickerPack {
      - .incorrectImageSize if the tray image is not within the allowed size
      - .animatedImagesNotSupported if the tray image is animated
      */
-    init(identifier: String, name: String, publisher: String, trayImagePNGData: Data, publisherWebsite: String?, privacyPolicyWebsite: String?, licenseAgreementWebsite: String?, iOSAppStoreLink: String?, androidStoreLink: String?) throws {
+    init(identifier: String, name: String, publisher: String, trayImagePNGData: Data, publisherWebsite: String?, privacyPolicyWebsite: String?, licenseAgreementWebsite: String?, iOSAppStoreLink: String?, androidStoreLink: String?, imageDataVersion: String?, animatedStickerPack: Bool?) throws {
         guard !name.isEmpty && !publisher.isEmpty && !identifier.isEmpty else {
             throw StickerPackError.emptyString
         }
@@ -134,6 +138,8 @@ class StickerPack {
         self.licenseAgreementWebsite = licenseAgreementWebsite
         self.iOSAppStoreLink = iOSAppStoreLink
         self.androidStoreLink = androidStoreLink
+        self.imageDataVersion = imageDataVersion
+        self.animatedStickerPack = animatedStickerPack
     }
 
     /**
@@ -193,6 +199,8 @@ class StickerPack {
             json["tray_image"] = self.trayImage.pngData?.base64EncodedString()
             json["ios_app_store_link"] = self.iOSAppStoreLink
             json["android_play_store_link"] = self.androidStoreLink
+            json["image_data_version"] = self.imageDataVersion
+            json["animated_sticker_pack"] = self.animatedStickerPack
 
             var stickersArray: [[String: Any]] = []
             for sticker in self.stickers {
